@@ -3,6 +3,7 @@
 library(shiny)
 library(shinyalert)
 library(serial)
+library(DT)
 
 
 # Defines UI for app
@@ -13,7 +14,7 @@ ui <- shinyUI(fluidPage(
   sidebarLayout(position = "right",
     sidebarPanel(
       
-      helpText("Use below buttons to connect or disconnect with the device."),
+      helpText("Use buttons below in order to connect or disconnect with the device."),
       
       # creates buttons to connect or disconnect
       useShinyalert(),
@@ -57,8 +58,8 @@ ui <- shinyUI(fluidPage(
       
       # shows used parameters
       # h4("Used parameters"), textOutput("paramsOut"),
-      h4("Output as text"), textOutput("mobiOut"),
-      # h4("Output as data table"), dataTableOutput("dataTableOut")
+      # h4("Output as text"), textOutput("mobiOut"),
+      h4("Output as data table"), dataTableOutput("dataTableOut")
     )
   )
 ))
@@ -68,7 +69,7 @@ server <- shinyServer(function(input, output, session) {
   
   # creates, opens and checks (dis)connection with the device
   observeEvent(input$conButton, {
-    mobiConn <- serialConnection("mobi", port="COM5", mode="115200,n,8,1")
+    mobiConn <<- serialConnection("mobi", port="COM5", mode="115200,n,8,1")
     open(mobiConn)
     
     connChecking <- function(mobiConn){
@@ -96,30 +97,31 @@ server <- shinyServer(function(input, output, session) {
 
   # executes the command with parameters entered by user - as a text output
   request <- eventReactive(input$startButton, {
-    # params <- isolate(paramsInput())
-
-    perm.vector <- paste(input$channelChoice,input$cycleNumber,input$cmdChoice, sep = " ", collapse = NULL)
+    perm.vector <- paste(input$channelChoice,input$cycleNumber,input$cmdChoice, sep = " ")
     print(perm.vector)
     write.serialConnection(mobiConn, paste(perm.vector, "\r\n", sep=""))
+    # data manipulaton
+    Sys.sleep(0.2)
+    res <- read.serialConnection(mobiConn, n = 0)
+    res2 <- unlist(strsplit(res, " "))
+    m <- matrix(res2, ncol=length(res2))
+    df <- as.data.frame(m)
     })
 
   # displays command 
   output$mobiOut <- renderText({
     request()
+    Sys.sleep(0.2)
     read.serialConnection(mobiConn, n = 0)
   })
   
-  # # calls as a data table output
-  # output$dataTableOut <- renderDataTable({
-  #   # input$startButton # makes sure nothing moves till the button is hit
-  #   request()
-  #   isolate(df <- data.frame(inputs = read.serialConnection(mobiConn, n = 0)))
-  #   print(df)
-  # }, options = list(
-  #   lengthMenu = list(c(5, 15, -1), c('5', '15', 'All')),
-  #   pageLength = 15)
-  # )
 
+  # calls as a data table output
+  output$dataTableOut <- DT::renderDataTable({
+    request()}, options = list(
+    lengthMenu = list(c(5, 15, -1), c('5', '15', 'All')),
+    pageLength = 15)
+  )
   
 })
 

@@ -14,7 +14,7 @@ saveData <- function(res) {
   if (exists("responses")) {
     print(">>> Adding new measurements to data table...")
     responses2 <<- data.frame(res, stringsAsFactors = FALSE)
-    responses2 <<- responses2 %>% separate(res, c("channel", "freq", "impedance_re", "impedance_im"), extra='drop')
+    responses2 <<- responses2 %>% separate(res, c("channel", "freq", "Z_re", "Z_im"), extra='drop')
     responses <<- rbind(responses, responses2)
     print(responses)
     
@@ -23,7 +23,7 @@ saveData <- function(res) {
     responses <<- data.frame(res, stringsAsFactors = FALSE)
     print(responses)
     
-    responses <<- responses %>% separate(res, c("channel", "freq", "impedance_re", "impedance_im"), extra='drop')
+    responses <<- responses %>% separate(res, c("channel", "freq", "Z_re", "Z_im"), extra='drop')
     print(responses)
   }
 }
@@ -72,7 +72,7 @@ ui <- shinyUI(fluidPage(
                                                 "Channel 7" = 7, "Channel 8" = 8),
                                  selected = 1),
               hr(),
-              textInput("cycleNumber", "Number of measuring cycles", "1"),
+              textInput("cycleNumber", h5("Select number of measuring cycles"), "1"),
               
               hr(),
               selectInput("cmdChoice", h5("Choose measuring command"), 
@@ -85,9 +85,8 @@ ui <- shinyUI(fluidPage(
             ),
             
             mainPanel(
-              # h4("Output as text"), textOutput("mobiOut"),
-              h4("Output as data table"), DT::dataTableOutput("responses"),
-              h4("Plot"), plotOutput("plot")
+              h3("Measurements"), DT::dataTableOutput("responses"),
+              h3("Impedance curve for selected frequencies"), plotOutput("plot")
             )
   )
 ))
@@ -127,53 +126,157 @@ server <- shinyServer(function(input, output, session) {
           
           output$responses <- DT::renderDataTable({
             req(input$startButton)
+
             inputParameters <- isolate(formData())
+            
+                
+                # for (ch in inputParameters$channelChoice){
+                #   print(ch)
+                # }
+
             
             frequencies <- c("1000", "5000", "9000", "14000")
             
-            for (f in frequencies) {
-              print(f)
+            print(">>> Checking which command")
             
-              request <- paste(inputParameters$cmdChoice, "3", inputParameters$channelChoice, f, "0\r\n", sep=" ")
+            ### CMD 107 ###
+            
+            if (inputParameters$cmdChoice == "107") {
               
-              # write.serialConnection(mobiConn, "108 0\r\n") # otwarcie sesji
-              # read.serialConnection(mobiConn, "108 0\r\n")
+              print(">>> Command 107")  
+              
+              for (ch in inputParameters$channelChoice){
+                print(ch)
+                
+                for (f in frequencies) {
+                  print(f)
+                
+                  request <- paste(inputParameters$cmdChoice, "3", ch, f, "0\r\n", sep=" ")
+    
+                  write.serialConnection(mobiConn, request)
+                  
+                  Sys.sleep(0.2)
+                  
+                  confirmation <- read.serialConnection(mobiConn, n = 0)
+                  print(confirmation)
+                  
+                    if (grepl("016777200", confirmation) == TRUE) {
+                      print(">>> Measurement confirmed")
+                      Sys.sleep(5)
+                      res <- read.serialConnection(mobiConn, n = 0)
+                      print(res)
+
+                      res <- substr(res, 9, 25)
+                      print(res)
+                      
+                      saveData(res)
+                      datatable(loadData(), rownames = FALSE)
+      
+                    } else {
+                      print(">>> Measurement not confirmed")
+                    }
+                }
+              }
+            } else if (inputParameters$cmdChoice == "110") { 
+              
+              ### CMD 110 ###
+              
+              print(">>> Command 110") 
+              
+              for (ch in inputParameters$channelChoice){
+                print(ch)
+                
+                for (f in frequencies) {
+                  print(f)
+                  
+                  write.serialConnection(mobiConn, "108 0\r\n") # otwarcie sesji
+                  Sys.sleep(0.2)
+                  read.serialConnection(mobiConn, n = 0)
+                  print(">>> Session opened")
+                  
+                  Sys.sleep(5)
+                  
+                  request <- paste(inputParameters$cmdChoice, "3", ch, f, "0\r\n", sep=" ")
+                  
+                  write.serialConnection(mobiConn, request)
+                  
+                  Sys.sleep(10)
+                  
+                  confirmation <- read.serialConnection(mobiConn, n = 0)
+                  print(confirmation)
+                  
+                  Sys.sleep(10)
+                  
+                  write.serialConnection(mobiConn, "109 0\r\n") # zamkniecie sesji
+                  Sys.sleep(0.2)
+                  read.serialConnection(mobiConn, n = 0)
+                  print(">>> Session closed")
+                  
+                  if (grepl("016777200", confirmation) == TRUE) {
+                    print(">>> Measurement confirmed")
+                    Sys.sleep(5)
+  
+                    res <- substr(confirmation, 33, 75)
+                    print(res)
+                    
+                    saveData(res)
+                    datatable(loadData(), rownames = FALSE)
+                    
+                  } else {
+                    print(">>> Measurement not confirmed")
+                  }
+                }
+              }
+              
+            } else {
+              
+              ### CMD 114 ###
+ 
+              print(">>> Command 114")
+
+              write.serialConnection(mobiConn, "108 0\r\n") # otwarcie sesji
+              read.serialConnection(mobiConn, n = 0)
+              
+              Sys.sleep(0.2)
+              
+              request <- paste(inputParameters$cmdChoice, "9 0", inputParameters$channelChoice, "\r\n", sep=" ")
               
               write.serialConnection(mobiConn, request)
               
-              Sys.sleep(0.2)
+              Sys.sleep(5)
               
               confirmation <- read.serialConnection(mobiConn, n = 0)
               print(confirmation)
               
-              if (grepl('016777200', confirmation) == TRUE) {
+              Sys.sleep(2)
+              
+              write.serialConnection(mobiConn, "109 0\r\n") # zamkniecie sesji
+              read.serialConnection(mobiConn, n = 0)
+              
+              if (grepl("016777200", confirmation) == TRUE) {
                 print(">>> Measurement confirmed")
-                Sys.sleep(5)
-                res <- read.serialConnection(mobiConn, n = 0)
-                print(res)
-                res <- substr(res, 9, 25)
+                Sys.sleep(10)
+                
+                res <- substr(confirmation, 57, 75)
                 print(res)
                 
                 saveData(res)
                 datatable(loadData(), rownames = FALSE)
                 
-                # write.serialConnection(mobiConn, "109 0\r\n") # zamkniecie sesji
-                # read.serialConnection(mobiConn, "109 0\r\n")
-                
               } else {
                 print(">>> Measurement not confirmed")
               }
-            }
-            responses
-          },
-          options = list(
-            # dom = 't',
-            # ordering = FALSE,
-            # scroller = list(rowHeight = 100)
-            pageLength = 5
+              
+              
+              
+              }
+                
+              print(">>> Measurement executed")  
+              return(responses)
+            },
+            options = list(pageLength = 5)
           )
-          )
-          
+
           proxy <- dataTableProxy("responses")
           
           observeEvent(input$responses_cell_edit, {
@@ -197,8 +300,8 @@ server <- shinyServer(function(input, output, session) {
             print(toPlot)
             
             output$plot <- renderPlot({
-              re = toPlot$impedance_re
-              im = toPlot$impedance_im
+              re = toPlot$Z_re
+              im = toPlot$Z_im
               channel = toPlot$channel
               
               ggplot(toPlot,  aes(x=re, y=im, group = channel)) + 

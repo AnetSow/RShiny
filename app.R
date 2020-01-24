@@ -128,14 +128,8 @@ server <- shinyServer(function(input, output, session) {
             req(input$startButton)
 
             inputParameters <- isolate(formData())
-            
-                
-                # for (ch in inputParameters$channelChoice){
-                #   print(ch)
-                # }
 
-            
-            frequencies <- c("1000", "5000", "9000", "14000")
+            frequencies <- c("7017", "10796", "16841", "26315", "42103", "60148", "105258")
             
             print(">>> Checking which command")
             
@@ -207,7 +201,7 @@ server <- shinyServer(function(input, output, session) {
                   
                   Sys.sleep(10)
                   
-                  write.serialConnection(mobiConn, "109 0\r\n") # zamkniecie sesji
+                  write.serialConnection(mobiConn, "109 0\r\n")
                   Sys.sleep(0.2)
                   read.serialConnection(mobiConn, n = 0)
                   print(">>> Session closed")
@@ -215,8 +209,10 @@ server <- shinyServer(function(input, output, session) {
                   if (grepl("016777200", confirmation) == TRUE) {
                     print(">>> Measurement confirmed")
                     Sys.sleep(5)
-  
-                    res <- substr(confirmation, 33, 75)
+                    res <- read.serialConnection(mobiConn, n = 0)
+                    print(res)
+                    
+                    res <- substr(res, 9, 25)
                     print(res)
                     
                     saveData(res)
@@ -233,48 +229,86 @@ server <- shinyServer(function(input, output, session) {
               ### CMD 114 ###
  
               print(">>> Command 114")
-
-              write.serialConnection(mobiConn, "108 0\r\n") # otwarcie sesji
+              
+              channel_vector <- rep(0, 8)
+              
+              for (i in 1:length(channel_vector)){
+                for (ch in inputParameters$channelChoice){
+                  if (i == ch) {
+                    channel_vector[i] = 1}
+                }
+              }
+              
+              print(">>> Selected channels")
+              print(paste(channel_vector, collapse=" "))
+              
+              write.serialConnection(mobiConn, "108 0\r\n")
+              Sys.sleep(2)
               read.serialConnection(mobiConn, n = 0)
+              print(">>> Session opened")
               
               Sys.sleep(0.2)
               
-              request <- paste(inputParameters$cmdChoice, "9 0", inputParameters$channelChoice, "\r\n", sep=" ")
+              request <- paste(inputParameters$cmdChoice, " 9 0 ", paste(channel_vector, collapse=" "), "\r\n", sep="")
+              print(">>> request")
+              print(request)
               
               write.serialConnection(mobiConn, request)
               
-              Sys.sleep(5)
+              Sys.sleep(0.5)
               
               confirmation <- read.serialConnection(mobiConn, n = 0)
+              print(">>> confirmation")
               print(confirmation)
-              
-              Sys.sleep(2)
-              
-              write.serialConnection(mobiConn, "109 0\r\n") # zamkniecie sesji
-              read.serialConnection(mobiConn, n = 0)
-              
+
               if (grepl("016777200", confirmation) == TRUE) {
                 print(">>> Measurement confirmed")
-                Sys.sleep(10)
+                Sys.sleep(3)
                 
-                res <- substr(confirmation, 57, 75)
-                print(res)
-                
-                saveData(res)
-                datatable(loadData(), rownames = FALSE)
-                
+                for (i in 1:length(inputParameters$channelChoice)) {
+                  res <- read.serialConnection(mobiConn, n = 0)
+                  print(res)
+                  
+                  # res <- substr(res, 9, 25)
+                  # print(">>> res")
+                  # print(res)
+                  res_7017 <- paste(substr(res, 9, 9), substr(res, 16, 29), sep=" ")
+                  res_10796 <- paste(substr(res, 9, 9), substr(res, 31, 45), sep=" ")
+                  res_16841 <- paste(substr(res, 9, 9), substr(res, 47, 61), sep=" ")
+                  res_26315 <- paste(substr(res, 9, 9), substr(res, 63, 77), sep=" ")
+                  res_42103 <- paste(substr(res, 9, 9), substr(res, 79, 93), sep=" ")
+                  res_60148 <- paste(substr(res, 9, 9), substr(res, 95, 109), sep=" ")
+                  res_105258 <- paste(substr(res, 9, 9), substr(res, 111, 126), sep=" ")
+                  
+                  res_all <- matrix(c(res_7017, 
+                                res_10796, 
+                                res_16841, 
+                                res_26315, 
+                                res_42103, 
+                                res_60148, 
+                                res_105258), 
+                              ncol=1, nrow=7)
+
+                  saveData(res_all)
+                  datatable(loadData(), rownames = FALSE)
+                  
+                  Sys.sleep(5)
+                }
               } else {
                 print(">>> Measurement not confirmed")
               }
               
+              Sys.sleep(5)
               
+              write.serialConnection(mobiConn, "109 0\r\n")
+              read.serialConnection(mobiConn, n = 0)
+              print(">>> Session closed")
+            }
               
-              }
-                
-              print(">>> Measurement executed")  
-              return(responses)
-            },
-            options = list(pageLength = 5)
+            print(">>> Measurement executed")  
+            return(responses)
+              
+            }, options = list(pageLength = 5)
           )
 
           proxy <- dataTableProxy("responses")

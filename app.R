@@ -8,13 +8,22 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 
-rm(list=ls())
+library(gridExtra)
+require(reshape2)
+
+library(shinycssloaders)
+library(shinyjs)
+library(DT)
+library(waiter)
+library(Rmisc)
+
+
 
 saveData <- function(res) {
   if (exists("responses")) {
     print(">>> Adding new measurements to data table...")
     responses2 <<- data.frame(res, stringsAsFactors = FALSE)
-    responses2 <<- responses2 %>% separate(res, c("channel", "freq", "Z_re", "Z_im"), extra='drop')
+    responses2 <<- responses2 %>% separate(res, c("channel", "freq", "Z_re", "Z_im", "cycle"), extra='drop')
     responses <<- rbind(responses, responses2)
     print(responses)
     
@@ -23,8 +32,9 @@ saveData <- function(res) {
     responses <<- data.frame(res, stringsAsFactors = FALSE)
     print(responses)
     
-    responses <<- responses %>% separate(res, c("channel", "freq", "Z_re", "Z_im"), extra='drop')
+    responses <<- responses %>% separate(res, c("channel", "freq", "Z_re", "Z_im", "cycle"), extra='drop')
     print(responses)
+    
   }
 }
 
@@ -47,17 +57,17 @@ setDataValue <- function(i, j, value) {
 
 
 fields <- c("channelChoice", "cycleNumber", "cmdChoice")
-
+NUM_PAGES <- 8
 
 
 ui <- shinyUI(fluidPage(
   
-  titlePanel("Mobi C bis v2"),
+  titlePanel("Mobi C bis"),
   
   sidebarLayout(position = "right",
             sidebarPanel(
               
-              helpText("Use buttons below in order to connect or disconnect with the device."),
+              helpText("This app analyses efficiency of electrode's channels. Use buttons below in order to connect or disconnect with the device."),
         
               useShinyalert(),
               actionButton("conButton", label="Connect"),
@@ -86,7 +96,24 @@ ui <- shinyUI(fluidPage(
             
             mainPanel(
               h3("Measurements"), DT::dataTableOutput("responses"),
-              h3("Impedance curve for selected frequencies"), plotOutput("plot")
+              # h3("Impedance curve for selected frequencies"), plotOutput("plot"),
+              
+              br(),
+              # use_waiter(),
+              useShinyjs(),
+              hidden(
+                lapply(as.numeric(NUM_PAGES), function(i) {
+                  div(class = "page",
+                      id = paste0("step", i), "Step", i)
+                  })
+              ),
+              
+              br(),
+              actionButton("prevButton", "< Previous"),
+              actionButton("nextButton", "Next >"),
+              
+              br(),
+              plotOutput("plot") %>% withSpinner(color = "blue")
             )
   )
 ))
@@ -127,7 +154,7 @@ server <- shinyServer(function(input, output, session) {
           output$responses <- DT::renderDataTable({
             req(input$startButton)
 
-            inputParameters <- isolate(formData())
+            inputParameters <<- isolate(formData())
 
             frequencies <- c("7017", "10796", "16841", "26315", "42103", "60148", "105258")
             
@@ -139,38 +166,47 @@ server <- shinyServer(function(input, output, session) {
               
               print(">>> Command 107")  
               
-              for (ch in inputParameters$channelChoice){
-                print(ch)
+              for (c in 1:inputParameters$cycleNumber) {
+                print(c)
                 
-                for (f in frequencies) {
-                  print(f)
-                
-                  request <- paste(inputParameters$cmdChoice, "3", ch, f, "0\r\n", sep=" ")
-    
-                  write.serialConnection(mobiConn, request)
+                for (ch in inputParameters$channelChoice) {
+                  print(ch)
                   
-                  Sys.sleep(0.2)
+                  for (f in frequencies) {
+                    print(f)
                   
-                  confirmation <- read.serialConnection(mobiConn, n = 0)
-                  print(confirmation)
-                  
-                    if (grepl("016777200", confirmation) == TRUE) {
-                      print(">>> Measurement confirmed")
-                      Sys.sleep(5)
-                      res <- read.serialConnection(mobiConn, n = 0)
-                      print(res)
-
-                      res <- substr(res, 9, 25)
-                      print(res)
-                      
-                      saveData(res)
-                      datatable(loadData(), rownames = FALSE)
+                    request <- paste(inputParameters$cmdChoice, "3", ch, f, "0\r\n", sep=" ")
       
-                    } else {
-                      print(">>> Measurement not confirmed")
-                    }
+                    write.serialConnection(mobiConn, request)
+                    
+                    Sys.sleep(0.2)
+                    
+                    confirmation <- read.serialConnection(mobiConn, n = 0)
+                    print(confirmation)
+                    
+                      if (grepl("016777200", confirmation) == TRUE) {
+                        print(">>> Measurement confirmed")
+                        Sys.sleep(5)
+                        res <- read.serialConnection(mobiConn, n = 0)
+                        print(res)
+  
+                        # res <- substr(res, 9, 25)
+                        # print(res)
+                        res <- paste(substr(res, 9, 25), as.character(c), sep=" ")
+                        print(res)
+                        
+                        saveData(res)
+                        datatable(loadData(), rownames = FALSE)
+        
+                      } else {
+                        print(">>> Measurement not confirmed")
+                      }
+                  }
                 }
               }
+                print(">>> Measurement executed")  
+                return(responses)
+                
             } else if (inputParameters$cmdChoice == "110") { 
               
               ### CMD 110 ###
@@ -180,49 +216,55 @@ server <- shinyServer(function(input, output, session) {
               for (ch in inputParameters$channelChoice){
                 print(ch)
                 
-                for (f in frequencies) {
-                  print(f)
+                for (c in 1:inputParameters$cycleNumber) {
+                  print(c)
                   
-                  write.serialConnection(mobiConn, "108 0\r\n") # otwarcie sesji
-                  Sys.sleep(0.2)
-                  read.serialConnection(mobiConn, n = 0)
-                  print(">>> Session opened")
-                  
-                  Sys.sleep(5)
-                  
-                  request <- paste(inputParameters$cmdChoice, "3", ch, f, "0\r\n", sep=" ")
-                  
-                  write.serialConnection(mobiConn, request)
-                  
-                  Sys.sleep(10)
-                  
-                  confirmation <- read.serialConnection(mobiConn, n = 0)
-                  print(confirmation)
-                  
-                  Sys.sleep(10)
-                  
-                  write.serialConnection(mobiConn, "109 0\r\n")
-                  Sys.sleep(0.2)
-                  read.serialConnection(mobiConn, n = 0)
-                  print(">>> Session closed")
-                  
-                  if (grepl("016777200", confirmation) == TRUE) {
-                    print(">>> Measurement confirmed")
+                  for (f in frequencies) {
+                    print(f)
+                    
+                    write.serialConnection(mobiConn, "108 0\r\n") # otwarcie sesji
+                    Sys.sleep(0.2)
+                    read.serialConnection(mobiConn, n = 0)
+                    print(">>> Session opened")
+                    
                     Sys.sleep(5)
-                    res <- read.serialConnection(mobiConn, n = 0)
-                    print(res)
                     
-                    res <- substr(res, 9, 25)
-                    print(res)
+                    request <- paste(inputParameters$cmdChoice, "3", ch, f, "0\r\n", sep=" ")
                     
-                    saveData(res)
-                    datatable(loadData(), rownames = FALSE)
+                    write.serialConnection(mobiConn, request)
                     
-                  } else {
-                    print(">>> Measurement not confirmed")
+                    Sys.sleep(10)
+                    
+                    confirmation <- read.serialConnection(mobiConn, n = 0)
+                    print(confirmation)
+                    
+                    Sys.sleep(10)
+                    
+                    write.serialConnection(mobiConn, "109 0\r\n")
+                    Sys.sleep(0.2)
+                    read.serialConnection(mobiConn, n = 0)
+                    print(">>> Session closed")
+                    
+                    if (grepl("016777200", confirmation) == TRUE) {
+                      print(">>> Measurement confirmed")
+                      Sys.sleep(5)
+                      # res <- read.serialConnection(mobiConn, n = 0)
+                      # print(res)
+                      
+                      res <- paste(substr(confirmation, 33, 49), as.character(c), sep=" ")
+                      print(res)
+                      
+                      saveData(res)
+                      datatable(loadData(), rownames = FALSE)
+                      
+                    } else {
+                      print(">>> Measurement not confirmed")
+                    }
                   }
                 }
               }
+              print(">>> Measurement executed")  
+              return(responses)
               
             } else {
               
@@ -242,72 +284,73 @@ server <- shinyServer(function(input, output, session) {
               print(">>> Selected channels")
               print(paste(channel_vector, collapse=" "))
               
-              write.serialConnection(mobiConn, "108 0\r\n")
-              Sys.sleep(2)
-              read.serialConnection(mobiConn, n = 0)
-              print(">>> Session opened")
+              for (c in 1:inputParameters$cycleNumber) {
+                print(c)
               
-              Sys.sleep(0.2)
-              
-              request <- paste(inputParameters$cmdChoice, " 9 0 ", paste(channel_vector, collapse=" "), "\r\n", sep="")
-              print(">>> request")
-              print(request)
-              
-              write.serialConnection(mobiConn, request)
-              
-              Sys.sleep(0.5)
-              
-              confirmation <- read.serialConnection(mobiConn, n = 0)
-              print(">>> confirmation")
-              print(confirmation)
-
-              if (grepl("016777200", confirmation) == TRUE) {
-                print(">>> Measurement confirmed")
-                Sys.sleep(3)
+                write.serialConnection(mobiConn, "108 0\r\n")
+                Sys.sleep(2)
+                read.serialConnection(mobiConn, n = 0)
+                print(">>> Session opened")
                 
-                for (i in 1:length(inputParameters$channelChoice)) {
-                  res <- read.serialConnection(mobiConn, n = 0)
-                  print(res)
+                Sys.sleep(0.2)
+                
+                request <- paste(inputParameters$cmdChoice, " 9 0 ", paste(channel_vector, collapse=" "), "\r\n", sep="")
+                print(">>> request")
+                print(request)
+                
+                write.serialConnection(mobiConn, request)
+                
+                Sys.sleep(0.5)
+                
+                confirmation <- read.serialConnection(mobiConn, n = 0)
+                print(">>> confirmation")
+                print(confirmation)
+  
+                if (grepl("016777200", confirmation) == TRUE) {
+                  print(">>> Measurement confirmed")
+                  Sys.sleep(3)
                   
-                  # res <- substr(res, 9, 25)
-                  # print(">>> res")
-                  # print(res)
-                  res_7017 <- paste(substr(res, 9, 9), substr(res, 16, 29), sep=" ")
-                  res_10796 <- paste(substr(res, 9, 9), substr(res, 31, 45), sep=" ")
-                  res_16841 <- paste(substr(res, 9, 9), substr(res, 47, 61), sep=" ")
-                  res_26315 <- paste(substr(res, 9, 9), substr(res, 63, 77), sep=" ")
-                  res_42103 <- paste(substr(res, 9, 9), substr(res, 79, 93), sep=" ")
-                  res_60148 <- paste(substr(res, 9, 9), substr(res, 95, 109), sep=" ")
-                  res_105258 <- paste(substr(res, 9, 9), substr(res, 111, 126), sep=" ")
-                  
-                  res_all <- matrix(c(res_7017, 
-                                res_10796, 
-                                res_16841, 
-                                res_26315, 
-                                res_42103, 
-                                res_60148, 
-                                res_105258), 
-                              ncol=1, nrow=7)
-
-                  saveData(res_all)
-                  datatable(loadData(), rownames = FALSE)
-                  
-                  Sys.sleep(5)
+                  for (i in 1:length(inputParameters$channelChoice)) {
+                    res <- read.serialConnection(mobiConn, n = 0)
+                    print(res)
+                    
+                    res_7017 <- paste(substr(res, 9, 9), substr(res, 16, 29), as.character(c), sep=" ")
+                    res_10796 <- paste(substr(res, 9, 9), substr(res, 31, 45), as.character(c), sep=" ")
+                    res_16841 <- paste(substr(res, 9, 9), substr(res, 47, 61), as.character(c), sep=" ")
+                    res_26315 <- paste(substr(res, 9, 9), substr(res, 63, 77), as.character(c), sep=" ")
+                    res_42103 <- paste(substr(res, 9, 9), substr(res, 79, 93), as.character(c), sep=" ")
+                    res_60148 <- paste(substr(res, 9, 9), substr(res, 95, 109), as.character(c), sep=" ")
+                    res_105258 <- paste(substr(res, 9, 9), substr(res, 111, 126), as.character(c), sep=" ")
+                    
+                    res_all <- matrix(c(res_7017, 
+                                  res_10796, 
+                                  res_16841, 
+                                  res_26315, 
+                                  res_42103, 
+                                  res_60148, 
+                                  res_105258), 
+                                ncol=1, nrow=7)
+  
+                    saveData(res_all)
+                    datatable(loadData(), rownames = FALSE)
+                    
+                    Sys.sleep(5)
+                  }
+                } else {
+                  print(">>> Measurement not confirmed")
                 }
-              } else {
-                print(">>> Measurement not confirmed")
+                
+                Sys.sleep(5)
+                
+                write.serialConnection(mobiConn, "109 0\r\n")
+                read.serialConnection(mobiConn, n = 0)
+                print(">>> Session closed")
               }
-              
-              Sys.sleep(5)
-              
-              write.serialConnection(mobiConn, "109 0\r\n")
-              read.serialConnection(mobiConn, n = 0)
-              print(">>> Session closed")
+                
+              print(">>> Measurement executed")  
+              return(responses)
             }
-              
-            print(">>> Measurement executed")  
-            return(responses)
-              
+
             }, options = list(pageLength = 5)
           )
 
@@ -326,23 +369,84 @@ server <- shinyServer(function(input, output, session) {
             DT::replaceData(proxy, loadData(), resetPaging = FALSE, rownames = FALSE)
           })
           
-          observeEvent(input$plotButton, {
-            toPlot <- loadData()
+          rv <- reactiveValues(page = 1)
 
-            toPlot[] <- lapply(toPlot, as.numeric)
-            print("Data toPlot") 
-            print(toPlot)
-            
+          observe({
+            toggleState(id = "prevButton", condition = rv$page > 1)
+            toggleState(id = "nextButton", condition = rv$page < NUM_PAGES)
+            hide(selector = ".page")
+            show(paste0("step", rv$page))
+          })
+
+          navPage <- function(direction) {
+            rv$page <- rv$page + direction
+          }
+
+          observeEvent(input$prevButton, navPage(-1))
+          observeEvent(input$nextButton, navPage(1))
+          
+          
+          observeEvent(input$plotButton, {
+
             output$plot <- renderPlot({
-              re = toPlot$Z_re
-              im = toPlot$Z_im
-              channel = toPlot$channel
-              
-              ggplot(toPlot,  aes(x=re, y=im, group = channel)) + 
-                  geom_point() +
-                  geom_line(color = channel)
+
+              toPlot <- loadData()
+              toPlot[] <- lapply(toPlot, as.numeric)
+
+              print(">>> Data toPlot")
+              print(toPlot)
+
+              channel_list <- unique(toPlot$channel)
+              print(">>> channel_list: ")
+              print(channel_list)
+              plot_list <- list()
+
+
+              for (i in channel_list) {
+
+                df_channel = subset(toPlot, toPlot$channel == channel_list[i])
+                print(">>> plotting for channel: ")
+                print(i)
+                
+                Z_im = - df_channel$Z_im
+
+                p <- ggplot(df_channel, aes(x = Z_re, y = Z_im, group = cycle, color = factor(cycle))) +
+                      geom_line() +
+                      facet_wrap( ~  channel_list[i], ncol = 2) +
+                      theme_bw() +
+                      theme(legend.position = "right") +
+                      ggtitle(paste("Impedance curve for channel", as.character(channel_list[i]), sep = " ")) +
+                      labs(x='Z re', y='-Z im') +
+                      scale_color_brewer(palette = "RdYlBu")
+
+                plot_list[[i]] <- p
+              }
+
+              plot_list[[rv$page]]
             })
-        })
+
+          })
+          
+          
+        #   observeEvent(input$plotButton, {
+        #     toPlot <- loadData()
+        # 
+        #     toPlot[] <- lapply(toPlot, as.numeric)
+        #     print("Data toPlot")
+        #     print(toPlot)
+        # 
+        #     output$plot <- renderPlot({
+        #       re = toPlot$Z_re
+        #       im = toPlot$Z_im
+        #       channel = toPlot$channel
+        # 
+        #       ggplot(toPlot,  aes(x=re, y=im, group = channel)) +
+        #           geom_line(color = channel) +
+        #           labs(x='Zre', y='-Zim', title=paste("Channel", as.character(channel), sep=" "), color = 'cycleNumber') +
+        #           scale_color_brewer(palette = "RdYlBu") +
+        #           theme_bw()
+        #     })
+        # })
 
 })
 

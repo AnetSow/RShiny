@@ -134,9 +134,17 @@ log_df <- function(){
   z_re <- impedanceRe(p$out)
   z_im <- impedanceIm(p$out)
 
-  results <- data.frame(channel, frequency, z_re, z_im, cycle)
-  print(results)
+  # results <- 
+  data.frame(channel, frequency, z_re, z_im, cycle)
+  # print(results)
 }
 
 
 log_df()
+
+
+# library(jsonlite)
+# x <- toJSON(log_df())
+# cat(x)
+# write_json("C:/Users/Aneta/Projects/RShinyApp", x)
+

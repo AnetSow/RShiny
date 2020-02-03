@@ -9,14 +9,12 @@ library(tidyr)
 library(ggplot2)
 
 library(gridExtra)
-require(reshape2)
-
-library(shinycssloaders)
 library(shinyjs)
-library(DT)
 library(waiter)
-library(Rmisc)
 
+library(httr)
+library(viridis)
+library(shinycssloaders)
 
 
 saveData <- function(res) {
@@ -26,7 +24,6 @@ saveData <- function(res) {
     responses2 <<- responses2 %>% separate(res, c("channel", "freq", "Z_re", "Z_im", "cycle"), extra='drop')
     responses <<- rbind(responses, responses2)
     print(responses)
-    
   } else {
     print(">>> Creating data table with measurements...")
     responses <<- data.frame(res, stringsAsFactors = FALSE)
@@ -34,7 +31,6 @@ saveData <- function(res) {
     
     responses <<- responses %>% separate(res, c("channel", "freq", "Z_re", "Z_im", "cycle"), extra='drop')
     print(responses)
-    
   }
 }
 
@@ -74,6 +70,7 @@ ui <- shinyUI(fluidPage(
               actionButton("disconButton", label="Disconnect"),
               
               hr(),
+              helpText("You can either choose parameters to execute measurement or plot charts from uploaded log file."),
               checkboxGroupInput("channelChoice", 
                                  label = h5("Select channels to measure"), 
                                  choices = list("Channel 1" = 1, "Channel 2" = 2, 
@@ -81,22 +78,26 @@ ui <- shinyUI(fluidPage(
                                                 "Channel 5" = 5, "Channel 6" = 6,
                                                 "Channel 7" = 7, "Channel 8" = 8),
                                  selected = 1),
-              hr(),
+
               textInput("cycleNumber", h5("Select number of measuring cycles"), "1"),
               
-              hr(),
               selectInput("cmdChoice", h5("Choose measuring command"), 
                           choices = list("107" = 107, "110" = 110,
                                          "114" = 114), selected = 107),
-        
-              actionButton("startButton", label="Start"),
-              actionButton("plotButton", label="Plot")
               
+              br(),
+              actionButton("startButton", label="Start"),
+              actionButton("plotButton", label="Plot"),
+              
+              hr(),
+              fileInput('datafile', h5('Choose log file'), multiple = FALSE)
+
             ),
             
             mainPanel(
               h3("Measurements"), DT::dataTableOutput("responses"),
-              # h3("Impedance curve for selected frequencies"), plotOutput("plot"),
+              # h3("Impedance curves for log data"), plotOutput("logPlot"),
+              h3("Measurements from log"), DT::dataTableOutput("logOut"),
               
               br(),
               # use_waiter(),
@@ -107,19 +108,20 @@ ui <- shinyUI(fluidPage(
                       id = paste0("step", i), "Step", i)
                   })
               ),
-              
+
+              br(),
+              plotOutput("plot") %>% withSpinner(color = "blue"),
+
               br(),
               actionButton("prevButton", "< Previous"),
-              actionButton("nextButton", "Next >"),
-              
-              br(),
-              plotOutput("plot") %>% withSpinner(color = "blue")
+              actionButton("nextButton", "Next >")
             )
-  )
-))
+        )
+  ))
 
 server <- shinyServer(function(input, output, session) {
-  
+
+          # Connecting with the device
           observeEvent(input$conButton, {
             mobiConn <<- serialConnection("mobi", port="COM5", mode="115200,n,8,1")
             open(mobiConn)
@@ -134,6 +136,7 @@ server <- shinyServer(function(input, output, session) {
             shinyalert(connChecking(mobiConn))
           })
           
+          # Disonnecting with the device
           observeEvent(input$disconButton, {
             close(mobiConn)
             
@@ -146,11 +149,13 @@ server <- shinyServer(function(input, output, session) {
             
             shinyalert(disconnChecking(mobiConn))
           })
-          
+         
+          # Collecting parameters choosed by User 
           formData <- reactive({
             sapply(fields, function(x) input[[x]], simplify = FALSE)
           })
           
+          # Measurement executing
           output$responses <- DT::renderDataTable({
             req(input$startButton)
 
@@ -189,9 +194,7 @@ server <- shinyServer(function(input, output, session) {
                         Sys.sleep(5)
                         res <- read.serialConnection(mobiConn, n = 0)
                         print(res)
-  
-                        # res <- substr(res, 9, 25)
-                        # print(res)
+
                         res <- paste(substr(res, 9, 25), as.character(c), sep=" ")
                         print(res)
                         
@@ -204,8 +207,8 @@ server <- shinyServer(function(input, output, session) {
                   }
                 }
               }
-                print(">>> Measurement executed")  
-                return(responses)
+              print(">>> Measurement executed")  
+              return(responses)
                 
             } else if (inputParameters$cmdChoice == "110") { 
               
@@ -354,8 +357,10 @@ server <- shinyServer(function(input, output, session) {
             }, options = list(pageLength = 5)
           )
 
+          # Transforming measurement data into datatable
           proxy <- dataTableProxy("responses")
           
+          # Datatable updating
           observeEvent(input$responses_cell_edit, {
             info <- input$responses_cell_edit
             str(info)
@@ -369,6 +374,20 @@ server <- shinyServer(function(input, output, session) {
             DT::replaceData(proxy, loadData(), resetPaging = FALSE, rownames = FALSE)
           })
           
+          
+          # Uploading the selected log file and parsing data from log
+          logData <- reactive({
+            req(input$datafile)
+            if(!exists("log_df", mode="function")) source("logs_parser.R")
+            log_df()
+          })
+          
+          output$logOut <- renderDataTable({
+            toPlot <- logData()
+            return(toPlot)
+          })
+          
+          # Navigating through plots
           rv <- reactiveValues(page = 1)
 
           observe({
@@ -385,12 +404,13 @@ server <- shinyServer(function(input, output, session) {
           observeEvent(input$prevButton, navPage(-1))
           observeEvent(input$nextButton, navPage(1))
           
-          
+          # Plotting measurement results
           observeEvent(input$plotButton, {
 
             output$plot <- renderPlot({
 
-              toPlot <- loadData()
+              # toPlot <- loadData()
+              toPlot <- logData()
               toPlot[] <- lapply(toPlot, as.numeric)
 
               print(">>> Data toPlot")
@@ -421,32 +441,28 @@ server <- shinyServer(function(input, output, session) {
 
                 plot_list[[i]] <- p
               }
-
               plot_list[[rv$page]]
             })
-
           })
           
+        
+
           
-        #   observeEvent(input$plotButton, {
-        #     toPlot <- loadData()
-        # 
-        #     toPlot[] <- lapply(toPlot, as.numeric)
-        #     print("Data toPlot")
-        #     print(toPlot)
-        # 
-        #     output$plot <- renderPlot({
-        #       re = toPlot$Z_re
-        #       im = toPlot$Z_im
-        #       channel = toPlot$channel
-        # 
-        #       ggplot(toPlot,  aes(x=re, y=im, group = channel)) +
-        #           geom_line(color = channel) +
-        #           labs(x='Zre', y='-Zim', title=paste("Channel", as.character(channel), sep=" "), color = 'cycleNumber') +
-        #           scale_color_brewer(palette = "RdYlBu") +
-        #           theme_bw()
-        #     })
-        # })
+          
+          # # Plotting data from a log file
+          # output$logPlot <- renderPlot({
+          #   toPlot <- logData()
+          #   return(toPlot)
+          # 
+          #   df_channel = subset(toPlot, toPlot$channel == 1)
+          #   print(df_channel)
+          # 
+          #   # ggplot(df_channel, aes(x = Z_re, y = Z_im, group = cycle, color = factor(cycle))) +
+          #   #   geom_line()
+          # 
+          # })
+          
+
 
 })
 

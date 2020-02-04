@@ -90,7 +90,10 @@ ui <- shinyUI(fluidPage(
               actionButton("plotButton", label="Plot"),
               
               hr(),
-              fileInput('datafile', h5('Choose log file'), multiple = FALSE)
+              fileInput('datafile', h5('Choose log file'), multiple = FALSE),
+              
+              br(),
+              actionButton("plotLogButton", label="Plot")
 
             ),
             
@@ -407,14 +410,12 @@ server <- shinyServer(function(input, output, session) {
           # Plotting measurement results
           observeEvent(input$plotButton, {
 
+            if (isOpen(mobiConn) == TRUE) { 
+              
             output$plot <- renderPlot({
               
-              if(exists("log_df", mode="function")) {
-              toPlot <- logData()
-              } else {
               toPlot <- loadData()
               toPlot[] <- lapply(toPlot, as.numeric)
-              }
 
               print(">>> Data toPlot")
               print(toPlot)
@@ -426,12 +427,8 @@ server <- shinyServer(function(input, output, session) {
               for (i in channel_list) {
 
                 df_channel = toPlot[toPlot$channel == i,]
-                # print(">>> plotting for channel: ")
-                # print(i)
-                # print(">>> df_channel: ")
-                # print(df_channel)
-                
-                # Z_im = - df_channel$Z_im
+
+                Z_im = - df_channel$Z_im
 
                 p <- ggplot(df_channel, aes(x = Z_re, y = Z_im, group = cycle, color = factor(cycle))) +
                       geom_line() +
@@ -445,6 +442,44 @@ server <- shinyServer(function(input, output, session) {
               }
               plot_list[[rv$page]]
             })
+            
+            } else { shinyalert("You are not connected!") }
+          })
+          
+          
+          # Plotting measurement from log
+          observeEvent(input$plotLogButton, {
+            
+          if(exists("log_df", mode="function")) {
+                toPlot <- logData()
+                
+              output$plot <- renderPlot({
+              
+                print(">>> Data toPlot")
+                print(toPlot)
+                
+                channel_list <- unique(toPlot$channel)
+                plot_list <- list()
+                
+                
+                for (i in channel_list) {
+                  
+                  df_channel = toPlot[toPlot$channel == i,]
+                  
+                  p <- ggplot(df_channel, aes(x = Z_re, y = Z_im, group = cycle, color = factor(cycle))) +
+                    geom_line() +
+                    theme_minimal() +
+                    theme(legend.position = "right") +
+                    ggtitle(paste("Impedance curve for channel", as.character(i), sep = " ")) +
+                    labs(x='Z re', y='-Z im') +
+                    scale_color_brewer(palette = "RdYlBu")
+                  
+                  plot_list[[i]] <- p
+                }
+                plot_list[[rv$page]]
+              })
+            
+            } else { shinyalert("Try to upload a log file again.") } 
           })
 
 })

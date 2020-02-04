@@ -5,9 +5,7 @@
 
 processFile <- function(filepath) {
   con = file(filepath, "r")
-    
   linesInFile = readLines(con) 
-  # print(length(linesInFile))
   
   iToRpt_list <- list()
   out_list <- list()
@@ -43,9 +41,8 @@ processFile <- function(filepath) {
 
   data <- list(iToRpt_list, out_list)
   names(data) <- c("iToRpt", "out")
-  return(data)
-
   close(con)
+  return(data)
 }
 
 
@@ -131,16 +128,15 @@ log_df <- function(){
   channel <- channelNumber(p$out)
   frequency <- frequencyLevel(p$out)
   cycle <- rev(unlist(p$iToRpt)) # Reverting cycle number
-  z_re <- impedanceRe(p$out)
-  z_im <- impedanceIm(p$out)
+  Z_re <- impedanceRe(p$out)
+  Z_im <- impedanceIm(p$out)
 
-  # results <- 
-  data.frame(channel, frequency, z_re, z_im, cycle)
-  # print(results)
+  result <- data.frame(channel, frequency, Z_re, Z_im, cycle)
+  return(result)
 }
 
 
-log_df()
+# log_df()
 
 
 # library(jsonlite)

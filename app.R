@@ -96,7 +96,6 @@ ui <- shinyUI(fluidPage(
             
             mainPanel(
               h3("Measurements"), DT::dataTableOutput("responses"),
-              # h3("Impedance curves for log data"), plotOutput("logPlot"),
               h3("Measurements from log"), DT::dataTableOutput("logOut"),
               
               br(),
@@ -354,7 +353,7 @@ server <- shinyServer(function(input, output, session) {
               return(responses)
             }
 
-            }, options = list(pageLength = 5)
+            }, options = list(pageLength = 8)
           )
 
           # Transforming measurement data into datatable
@@ -382,10 +381,11 @@ server <- shinyServer(function(input, output, session) {
             log_df()
           })
           
-          output$logOut <- renderDataTable({
+          output$logOut <- DT::renderDataTable({
             toPlot <- logData()
             return(toPlot)
-          })
+          }, options = list(pageLength = 8)
+          )
           
           # Navigating through plots
           rv <- reactiveValues(page = 1)
@@ -408,34 +408,36 @@ server <- shinyServer(function(input, output, session) {
           observeEvent(input$plotButton, {
 
             output$plot <- renderPlot({
-
-              # toPlot <- loadData()
+              
+              if(exists("log_df", mode="function")) {
               toPlot <- logData()
+              } else {
+              toPlot <- loadData()
               toPlot[] <- lapply(toPlot, as.numeric)
+              }
 
               print(">>> Data toPlot")
               print(toPlot)
 
               channel_list <- unique(toPlot$channel)
-              print(">>> channel_list: ")
-              print(channel_list)
               plot_list <- list()
 
 
               for (i in channel_list) {
 
-                df_channel = subset(toPlot, toPlot$channel == channel_list[i])
-                print(">>> plotting for channel: ")
-                print(i)
+                df_channel = toPlot[toPlot$channel == i,]
+                # print(">>> plotting for channel: ")
+                # print(i)
+                # print(">>> df_channel: ")
+                # print(df_channel)
                 
-                Z_im = - df_channel$Z_im
+                # Z_im = - df_channel$Z_im
 
                 p <- ggplot(df_channel, aes(x = Z_re, y = Z_im, group = cycle, color = factor(cycle))) +
                       geom_line() +
-                      facet_wrap( ~  channel_list[i], ncol = 2) +
-                      theme_bw() +
+                      theme_minimal() +
                       theme(legend.position = "right") +
-                      ggtitle(paste("Impedance curve for channel", as.character(channel_list[i]), sep = " ")) +
+                      ggtitle(paste("Impedance curve for channel", as.character(i), sep = " ")) +
                       labs(x='Z re', y='-Z im') +
                       scale_color_brewer(palette = "RdYlBu")
 
@@ -444,25 +446,6 @@ server <- shinyServer(function(input, output, session) {
               plot_list[[rv$page]]
             })
           })
-          
-        
-
-          
-          
-          # # Plotting data from a log file
-          # output$logPlot <- renderPlot({
-          #   toPlot <- logData()
-          #   return(toPlot)
-          # 
-          #   df_channel = subset(toPlot, toPlot$channel == 1)
-          #   print(df_channel)
-          # 
-          #   # ggplot(df_channel, aes(x = Z_re, y = Z_im, group = cycle, color = factor(cycle))) +
-          #   #   geom_line()
-          # 
-          # })
-          
-
 
 })
 
